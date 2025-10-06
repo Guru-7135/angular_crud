@@ -6,7 +6,7 @@ on:
       - main
 
 jobs:
-  checkout-and-build:
+  build:
     runs-on: ubuntu-latest
 
     steps:
@@ -19,37 +19,36 @@ jobs:
           node-version: '16'
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
+        run: npm ci
 
       - name: Build Angular app
         run: npm run build -- --configuration production
 
-      - name: Verify build output
+      - name: Verify dist contents
         run: |
-          echo "Contents of dist:"
+          echo "dist folder:"
           ls -la dist
-          echo "Contents of project dist folder:"
+          echo "Angular build folder:"
           ls -la dist/angular-frontend
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: worksheet-build
-          path: dist/angular-frontend
+          name: angular-build
+          path: dist/angular-frontend/
 
   deploy:
     runs-on: ubuntu-latest
-    needs: checkout-and-build
+    needs: build
 
     steps:
       - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
-          name: worksheet-build
+          name: angular-build
           path: build
 
-      # Upload the built files to the EC2 instance
-      - name: Upload build to EC2 via SCP
+      - name: Upload build to EC2
         uses: appleboy/scp-action@v1
         with:
           host: ${{ secrets.HOST }}
@@ -58,8 +57,7 @@ jobs:
           source: "build/*"
           target: "/home/ubuntu/build-temp"
 
-      # Deploy and restart nginx on EC2
-      - name: Deploy and restart nginx
+      - name: Deploy to nginx and restart
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.HOST }}
@@ -67,19 +65,19 @@ jobs:
           key: ${{ secrets.KEY }}
           script: |
             set -e
-            echo "Deploying new build..."
+            echo "Deploying Angular app to /var/www/html/ ..."
 
-            # ensure target dir exists
+            # Ensure nginx web root exists
             sudo mkdir -p /var/www/html
 
-            # remove old files and move new ones
+            # Remove old files and move new build
             sudo rm -rf /var/www/html/*
             sudo mv /home/ubuntu/build-temp/* /var/www/html/
 
-            # fix permissions
+            # Set proper permissions
             sudo chown -R www-data:www-data /var/www/html
 
-            # restart nginx
+            # Restart nginx
             sudo systemctl restart nginx
 
-            echo "Deployment completed successfully!"
+            echo "✅ Deployment complete!"
